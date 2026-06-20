@@ -2,8 +2,8 @@
 """
 Core algorithms for precipitation spatial consistency quality control.
 
-This module provides standalone functions for outlier and extreme circle evaluations.
-It is designed to be imported by other scripts rather than executed directly.
+Provides standalone functions for outlier and extreme circle evaluations,
+designed to be imported by other scripts rather than executed directly.
 """
 
 from __future__ import annotations
@@ -14,10 +14,13 @@ import pandas as pd
 # Constants used in the evaluation logic
 CLIMATE_LIMIT = 184.4
 QC_THRESHOLD = 10
-EXTREME_TYPES = ['EXTREME_TYPE1', 'EXTREME_TYPE2', 'EXTREME_TYPE3', 'EXTREME_TYPE4', 'EXTREME_TYPE5'] # extreme type corresponding to determined score
-EXTREME_DETERMINE_SCORE = [2, 3, 4, 5, 6]  # score threshold denoting number of neighbors to validate outliers
-EXTREME_DETERMINE_COEFF = [0.5, 0.4, 0.3, 0.2, 0.1]  # Coefficients for establishing thresholds (coef*outlier) for extreme check
-EXTREME_FINAL_TYPE = 'EXTREME_TYPE6'  # Extreme type assigned to outliers that pass the final check but not the initial check
+EXTREME_ITERATION_LIMIT = 5  # Number of iterative extreme inspection to evaluate for each outlier
+EXTREME_QC_LABELS = ['EXTREME_TYPE1', 'EXTREME_TYPE2', 'EXTREME_TYPE3', 'EXTREME_TYPE4', 'EXTREME_TYPE5'] # extreme type corresponding to confidence score , 'EXTREME_TYPE5'
+EXTREME_QC_LABELS = EXTREME_QC_LABELS[:EXTREME_ITERATION_LIMIT]
+
+EXTREME_TCS_THRESHOLD = [2, 3, 4, 5, 6]  # confidence score threshold denoting number of neighbors to validate outliers , 6
+EXTREME_CONFIDENCE_COEFF = [0.5, 0.4, 0.3, 0.2, 0.1]  # confidence coefficients for establishing thresholds (coef*outlier) for extreme check , 0.1
+
 
 def calculate_p_max(precip_values: pd.Series) -> float:
     """ Calculate P_max threshold using IQR method. """
@@ -72,135 +75,102 @@ def perform_outlier_detection(df_all: pd.DataFrame, df_outlier_circles: pd.DataF
     df_all.loc[df_all['qc_label'] != 'NORMAL', 'qc_label'] = 'OUTLIER'
 
 
-def determine_extreme_type(r_surf, r_awst, target_statype, target_precip, extreme_type_idx):
-    """ Determine whether a given event is an extreme event and its type. """
+def compute_total_confidence_score(df_neighbors, r_threshold):
 
-    r_threshold = EXTREME_DETERMINE_COEFF[extreme_type_idx] * target_precip
+    # Sort neighbors by precipitation in descending order
+    df_neighbors = df_neighbors.sort_values(by='r', ascending=False)
+    df_neighbors.reset_index(drop=True, inplace=True)
+
+    # Extract values of SURF-type stations
+    r_surf = df_neighbors[df_neighbors['statype']=='SURF']['r'].values
+    r_awst = df_neighbors[df_neighbors['statype']=='AWST']['r'].values
+
     r_surf_confidence = [r for r in r_surf if r >= r_threshold]
     r_awst_confidence = [r for r in r_awst if r >= r_threshold]
-    confidence_score = 2*len(r_surf_confidence) + len(r_awst_confidence)    
-    score_threshold = EXTREME_DETERMINE_SCORE[extreme_type_idx]
-    
-    if target_statype == 'SURF': 
-        score_threshold -=1  # If the target station is SURF, we give it extra confidence and reduce the threshold by 1
 
-    if confidence_score >= score_threshold:
-        is_extreme = True
-        extreme_type = EXTREME_TYPES[extreme_type_idx]
-    else:
-        is_extreme = False
-        extreme_type = None
+    total_confidence_score = 2*len(r_surf_confidence) + len(r_awst_confidence)
 
-    return is_extreme, extreme_type
+    return total_confidence_score
 
 
-def extreme_inspection(filtered_extreme_circles, df_all_adjacent, target_stacode, target_statype, target_precip):
-    is_extreme, qc_label, validation_sample_size = False, None, None
-
-    # Loop through each filtered extreme circle
-    for _, single_circle in filtered_extreme_circles.iterrows():
-        neighbors = single_circle['neighbors']
-        
-        # Exclude the outlier station itself
-        neighbors = [s for s in neighbors if s != target_stacode]
-
-        if len(neighbors) == 0:
-            continue
-        
-        # Filter adjacent data for these neighbors
-        df_neighbors = df_all_adjacent[df_all_adjacent['stacode'].isin(neighbors)]
-        # Exclude neighbors outside of climate limit
-        df_neighbors = df_neighbors[df_neighbors['r']<=CLIMATE_LIMIT]           
-        
-        if df_neighbors.empty:
-            continue
-        validation_sample_size = df_neighbors.shape[0]
-
-        # Sort neighbors by precipitation in descending order
-        df_neighbors = df_neighbors.sort_values(by='r', ascending=False)
-        df_neighbors.reset_index(drop=True, inplace=True)
-       
-        # Extract values of SURF-type stations
-        r_surf = df_neighbors[df_neighbors['statype']=='SURF']['r'].values
-        r_awst = df_neighbors[df_neighbors['statype']=='AWST']['r'].values
-        
-        for extreme_type in EXTREME_TYPES:
-            extreme_type_idx = EXTREME_TYPES.index(extreme_type)
-            
-            is_extreme, extreme_type = determine_extreme_type(r_surf, r_awst, target_statype, target_precip, extreme_type_idx)
-            if is_extreme:
-                qc_label, validation_sample_size = extreme_type, validation_sample_size
-                break
-        
-        if is_extreme:
-            break  # quit the loop of extreme circles
-
-    return is_extreme, qc_label, validation_sample_size
-
-
-def extra_extreme_inspection(filtered_extreme_circles, df_all_adjacent, target_stacode, target_statype, target_precip):
-    is_extreme, qc_label, validation_sample_size = False, None, None
-
-    # Final check using all extreme neighbors (excluding the outlier station itself)
-    neighbors = filtered_extreme_circles['neighbors'].explode().unique()
-    neighbors = [s for s in neighbors if s != target_stacode]
-
-    # Filter adjacent data for these neighbors
-    df_neighbors = df_all_adjacent[df_all_adjacent['stacode'].isin(neighbors)]
-    # Exclude neighbors outside of climate limit
-    df_neighbors = df_neighbors[df_neighbors['r']<=CLIMATE_LIMIT]
-    
-    if not df_neighbors.empty:
-
-        validation_sample_size = df_neighbors.shape[0]
-
-        # Sort neighbors by precipitation in descending order
-        df_neighbors = df_neighbors.sort_values(by='r', ascending=False)
-        df_neighbors.reset_index(drop=True, inplace=True)
-
-        # Extract values of SURF-type stations
-        r_surf = df_neighbors[df_neighbors['statype']=='SURF']['r'].values
-        r_awst = df_neighbors[df_neighbors['statype']=='AWST']['r'].values
-        
-        for extreme_type in EXTREME_TYPES:
-            extreme_type_idx = EXTREME_TYPES.index(extreme_type)
-
-            is_extreme, extreme_type = determine_extreme_type(r_surf, r_awst, target_statype, target_precip, extreme_type_idx)
-            if is_extreme:
-                qc_label, validation_sample_size = extreme_type, validation_sample_size
-                break
-
-        if is_extreme is not None:
-            extreme_type = EXTREME_FINAL_TYPE  # manually set to "EXTREME_TYPE6"
-
-    return is_extreme, qc_label, validation_sample_size
-
-
-def perform_extreme_inspection(target_stacode: str, target_statype:str, target_precip: float, df_extreme_circles: pd.DataFrame, df_all_adjacent: pd.DataFrame,) -> None:
+def perform_extreme_inspection(target_stacode: str, target_statype:str, target_precip: float, 
+                               filtered_extreme_circles: pd.DataFrame, df_all_adjacent: pd.DataFrame, loop_all_circle: bool=False) -> None:
     """
     Perform extreme circle evaluation for OUTLIER records in-place.
     
     For each outlier, checks if certain amount of neighboring stations within extreme circles 
     have precipitation values that satisfy specific thresholds based on the OUTLIER record.
-    Labels as EXTREME_TYPE1-6 if conditions are met, otherwise FALSE.
+    Labels as EXTREME_TYPE1-5 if conditions are met, otherwise FALSE.
+    If loop_all_circle is True, the extreme_inspection() will loop all extreme circles containing the outlier station;
+    If loop_all_circle is False, the extreme_inspection() will break once an extreme circle validates the outlier station as extreme.
     """
-    
-    # Find extreme circles containing this outlier station
-    extreme_circles_mask = df_extreme_circles['neighbors'].apply(lambda neighbors: target_stacode in neighbors)
-    filtered_extreme_circles = df_extreme_circles[extreme_circles_mask]
-    
-    is_extreme, qc_label, validation_sample_size = extreme_inspection(filtered_extreme_circles, df_all_adjacent, target_stacode, target_statype, target_precip)
-    
-    if not is_extreme:
-        is_extreme, qc_label, validation_sample_size = extra_extreme_inspection(filtered_extreme_circles, df_all_adjacent, target_stacode, target_statype, target_precip)
-    
+
+    is_extreme, qc_label, validation_sample_size = False, None, None
+
+    for extreme_type in EXTREME_QC_LABELS:
+        extreme_type_idx = EXTREME_QC_LABELS.index(extreme_type)
+        extreme_tcs_threshold = EXTREME_TCS_THRESHOLD[extreme_type_idx]
+        
+        # If the target station is SURF, we give it extra confidence and reduce the threshold by 1
+        if target_statype == 'SURF':
+            extreme_tcs_threshold -= 1
+        confidence_coeff = EXTREME_CONFIDENCE_COEFF[extreme_type_idx]
+        r_threshold = confidence_coeff * target_precip
+
+        # initialize counts and locations for extreme circles which validate the outlier station as extreme
+        extreme_circle_count = filtered_extreme_circles.shape[0]
+        validation_circle_count = 0
+        validation_circle_locs = []
+
+        # Loop through each filtered extreme circle
+        for _, single_circle in filtered_extreme_circles.iterrows():
+            neighbors = single_circle['neighbors']
+            
+            # Exclude the outlier station itself
+            neighbors = [s for s in neighbors if s != target_stacode]
+
+            if len(neighbors) == 0:
+                continue
+            
+            # Filter adjacent data for these neighbors
+            df_neighbors = df_all_adjacent[df_all_adjacent['stacode'].isin(neighbors)]
+            # Exclude neighbors outside of climate limit
+            df_neighbors = df_neighbors[df_neighbors['r']<=CLIMATE_LIMIT]           
+            
+            if df_neighbors.empty:
+                continue
+
+            validation_sample_size = df_neighbors.shape[0]
+
+            total_confidence_score = compute_total_confidence_score(df_neighbors, r_threshold)
+
+            if total_confidence_score >= extreme_tcs_threshold:
+                is_extreme = True
+                validation_circle_count += 1
+                validation_circle_locs.append((single_circle['lon'], single_circle['lat']))
+                if not loop_all_circle:
+                    break
+            # else:
+                # is_extreme = False
+
+        if is_extreme:
+            qc_label, validation_sample_size, extreme_circle_count, validation_circle_count, validation_circle_locs \
+            = extreme_type, validation_sample_size, extreme_circle_count, validation_circle_count, validation_circle_locs
+            break
+        else:
+            validation_circle_count = 0
+            validation_circle_locs = []
+
+    validation_circle_locs = ';'.join([f'{loc}' for loc in validation_circle_locs])
+
     # Label based on evaluation result
     if not is_extreme:
         qc_label = 'FALSE'
-        if validation_sample_size is None:
-            validation_sample_size = 0
+
+    if validation_sample_size is None:
+        validation_sample_size = 0
     
-    return qc_label, validation_sample_size
+    return qc_label, validation_sample_size, extreme_circle_count, validation_circle_count, validation_circle_locs
 
 
 if __name__ == '__main__':

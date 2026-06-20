@@ -2,6 +2,7 @@
 data/
 figures/
 test/
+docs/
 
 # Ignore Python specific files
 __pycache__/

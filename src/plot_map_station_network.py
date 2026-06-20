@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Plot the distribution of meteorological stations in Guangdong Province.
-Stations are categorized by type: surf-type and awst-type.
-Grid nodes with 50km-radius circles are also plotted.
-Includes a time series showing station count evolution from 2003 to 2025.
+Plot meteorological station distribution and network in Guangdong Province.
+
+Visualizes surf-type and awst-type stations with 50km-radius grid circles,
+including time series of station count evolution.
 """
 
 from __future__ import annotations
@@ -20,19 +20,29 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 SRC_DIR = Path(__file__).resolve().parent
 DATA_DIR = SRC_DIR.parent / 'data'
 OUTPUT_DIR = SRC_DIR.parent / 'figures' / 'station_maps'
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 STATION_FILE = DATA_DIR / 'gd_stations_locations.csv'
-GRID_NEIGHBORS_FILE = DATA_DIR / 'gd_grids_coarse_neighbors.csv'
-SHP_FILE = DATA_DIR / 'external' / 'CHN_Province_Border.shp'
-OUTPUT_FILE = OUTPUT_DIR / 'gd_stations_distribution_map.png'
+SHP_FILE = DATA_DIR / 'external' / 'chn_province_border.shp'
+OUTPUT_FILE = OUTPUT_DIR / 'gd_station_network.png'
 
-# Geographic bounds for Guangdong Province
-LON_MIN, LON_MAX = 109.0, 119.0
+FIGSIZE = (14, 10)
+DPI = 300
+
+# period of calculating station count
+YEAR_STT, YEAR_END = 2003, 2025
+
+# map extent for Guangdong Province
 LAT_MIN, LAT_MAX = 19.0, 26.0
+LON_MIN, LON_MAX = 109.0, 118.0
+
+RADIUS_KM = 60  # radius for grid node circles
+NEIGHBOR_CIRCLES_FILE = DATA_DIR / 'neighbor_circles_outlier' / f"neighbor_circles_outlier_{RADIUS_KM}km.csv"
 
 STYLE_SETTINGS = {
     'style': 'seaborn-v0_8-darkgrid',
@@ -48,6 +58,15 @@ STYLE_SETTINGS = {
     'legend.edgecolor': 'white',
 }
 
+LAND = cfeature.NaturalEarthFeature('physical', 'land', '10m',
+                                    edgecolor='face', facecolor="#ffffff")
+OCEAN = cfeature.NaturalEarthFeature('physical', 'ocean', '10m',
+                                    edgecolor='face', facecolor="#78a2e0")
+COASTLINE = cfeature.NaturalEarthFeature('physical', 'coastline', '10m',
+                                        edgecolor='black', facecolor='none')
+BORDER = cfeature.NaturalEarthFeature('cultural', 'admin_0_boundary_lines_land', '10m', 
+                                        edgecolor='black', facecolor='none')
+
 
 def set_plot_style():
     """Apply consistent plot styling."""
@@ -58,13 +77,8 @@ def set_plot_style():
             mpl.rcParams[key] = value
 
 
-def load_station_data(station_file: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Load station data and separate by station type.
-    
-    Returns:
-        Tuple of (surf_stations, awst_stations) DataFrames
-    """
+def load_station_info(station_file: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load station data and separate by station type."""
     df = pd.read_csv(station_file, encoding='utf-8-sig')
     
     # Separate by station type
@@ -74,37 +88,19 @@ def load_station_data(station_file: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     return surf_stations, awst_stations
 
 
-def load_grid_nodes(grid_file: Path) -> pd.DataFrame:
-    """
-    Load grid node data from CSV file.
-    
-    Returns:
-        DataFrame with columns: lon, lat, neighbors, count
-    """
+def load_neighbor_circles(grid_file: Path) -> pd.DataFrame:
+    """Load grid node data from CSV file."""
     df = pd.read_csv(grid_file, encoding='utf-8-sig')
     return df
 
 
-def calculate_yearly_station_counts(all_stations: pd.DataFrame, 
-                                     start_year: int = 2003, 
-                                     end_year: int = 2025) -> pd.DataFrame:
-    """
-    Calculate the number of active stations for each year.
-    
-    Args:
-        all_stations: DataFrame with columns including 'date_stt' and 'statype'
-        start_year: Start year for analysis
-        end_year: End year for analysis
-    
-    Returns:
-        DataFrame with columns: year, surf_count, awst_count, total_count
-    """
-    # Convert date_stt to datetime
-    all_stations = all_stations.copy()
-    all_stations['date_stt'] = pd.to_datetime(all_stations['date_stt'])
-    
-    # Define analysis period
-    analysis_start = pd.Timestamp(f'{start_year}-01-01')
+def count_stations_by_year(surf_stations: pd.DataFrame, awst_stations: pd.DataFrame, 
+                                     start_year: int, 
+                                     end_year: int) -> pd.DataFrame:
+    """Calculate the number of active stations for each year."""
+
+    surf_stations['date_stt'] = pd.to_datetime(surf_stations['date_stt'])
+    awst_stations['date_stt'] = pd.to_datetime(awst_stations['date_stt'])
     
     # Generate year range
     years = list(range(start_year, end_year + 1))
@@ -115,10 +111,12 @@ def calculate_yearly_station_counts(all_stations: pd.DataFrame,
         
         # Count stations that were active during this year
         # A station is active if it started before or during the year
-        active_stations = all_stations[all_stations['date_stt'] <= year_end]
-        
+        active_stations = surf_stations[surf_stations['date_stt'] <= year_end]        
         surf_count = len(active_stations[active_stations['statype'] == 'surf'])
+        
+        active_stations = awst_stations[awst_stations['date_stt'] <= year_end] 
         awst_count = len(active_stations[active_stations['statype'] == 'awst'])
+
         total_count = surf_count + awst_count
         
         results.append({
@@ -131,107 +129,65 @@ def calculate_yearly_station_counts(all_stations: pd.DataFrame,
     return pd.DataFrame(results)
 
 
-def plot_stations_map(surf_stations: pd.DataFrame, awst_stations: pd.DataFrame, 
-                      grid_nodes: pd.DataFrame = None,
-                      all_stations: pd.DataFrame = None):
-    """
-    Plot station distribution map using cartopy for professional geographic visualization.
-    Optionally adds 50km-radius circles around grid nodes and station count time series.
-    """
-    # Create figure with cartopy projection
-    fig = plt.figure(figsize=(14, 10))
+def plot_station_timeline(fig, surf_stations: pd.DataFrame, awst_stations: pd.DataFrame,):
+    """Plot station count time series."""
+    # --- Add Station Count Time Series Plot ---
+    print("Calculating yearly station counts...")
+    yearly_counts = count_stations_by_year(surf_stations, awst_stations, YEAR_STT, YEAR_END)
     
-    # Main map axes (takes most of the figure)
-    ax_map = fig.add_axes([0.08, 0.05, 0.95, 0.95], 
-                          projection=ccrs.PlateCarree())
+    # Create inset axes in lower right corner
+    ax_inset = fig.add_axes([0.5, 0.09, 0.49, 0.24])   
+  
+    # Plot surf-type stations
+    ax_inset.plot(yearly_counts['year'], yearly_counts['surf_count'], 
+                    'b-o', markersize=6, linewidth=1.5, label='National Observatory Station', zorder=2)
     
-    # Set map extent to Guangdong Province
-    ax_map.set_extent([LON_MIN, LON_MAX, LAT_MIN, LAT_MAX], crs=ccrs.PlateCarree())
-
-    # Add geographic features
-    land = cfeature.NaturalEarthFeature('physical', 'land', '10m', 
-                                        edgecolor='face', facecolor='#f0f0f0')
-    ocean = cfeature.NaturalEarthFeature('physical', 'ocean', '10m', 
-                                         edgecolor='face', facecolor="#73a1e7")
-    coastline = cfeature.NaturalEarthFeature('physical', 'coastline', '10m', 
-                                             edgecolor='black', facecolor='none')
-    borders = cfeature.NaturalEarthFeature('cultural', 'admin_0_boundary_lines_land', '10m', 
-                                           edgecolor='black', facecolor='none')
+    # Plot awst-type stations
+    ax_inset.plot(yearly_counts['year'], yearly_counts['awst_count'], 
+                    'r-o', markersize=6, linewidth=1.5, label='Automatic Weather Station', zorder=2)
     
-    # ax_map.add_feature(land, zorder=0)
-    ax_map.add_feature(ocean, zorder=0)
-    # ax_map.add_feature(coastline, linewidth=0.5, zorder=1)
-    # ax_map.add_feature(borders, linewidth=0.5, alpha=0.5, zorder=1)
-
-     # load Guangdong boundary from a shapefile
-    gd_boundary = gpd.read_file(SHP_FILE)  # Replace with your file path
-    ax_map.add_geometries(gd_boundary.geometry, crs=ccrs.PlateCarree(),
-                      facecolor='none', edgecolor='black', linewidth=0.5, alpha=1)
-
-
-    # Add gridlines
-    gl = ax_map.gridlines(
-        crs=ccrs.PlateCarree(),
-        draw_labels=True,
-        linewidth=0.5,
-        color='gray',
-        alpha=0.7,
-        linestyle='-',
-    )
-    gl.top_labels = False
-    gl.right_labels = False
-    gl.xlabel_style = {'size': 10, 'rotation': 0}
-    gl.ylabel_style = {'size': 10, 'rotation': 0}
-
-    gl.xlocator = mticker.FixedLocator(np.arange(LON_MIN, LON_MAX + 1, 1))
-    gl.ylocator = mticker.FixedLocator(np.arange(LAT_MIN, LAT_MAX + 1, 1))
-
-    # Plot surf-type stations (blue circles)
-    if not surf_stations.empty:
-        ax_map.scatter(
-            surf_stations['lon'],
-            surf_stations['lat'],
-            transform=ccrs.PlateCarree(),
-            c='blue',
-            marker='o',
-            s=50,
-            alpha=0.8,
-            label='National Observatory Station',
-            zorder=6,
-        )
+    # Customize inset plot
+    ax_inset.set_xlabel('Year', fontsize=10) #, fontweight='bold'
+    ax_inset.set_ylabel('Number of Stations', fontsize=10) #, fontweight='bold'
+    ax_inset.grid(True, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
+    ax_inset.legend(loc='upper left', fontsize=10, framealpha=0.9, 
+                    frameon=True, edgecolor='black')
+    ax_inset.set_xlim(YEAR_STT-0.5, YEAR_END+0.5)
     
-    # Plot awst-type stations (red triangles)
-    if not awst_stations.empty:
-        ax_map.scatter(
-            awst_stations['lon'],
-            awst_stations['lat'],
-            transform=ccrs.PlateCarree(),
-            c='red',
-            edgecolor='white',
-            linewidths=0.2,
-            marker='^',
-            s=40,
-            alpha=0.9,
-            label='Automatic Weather Station',
-            zorder=5,
-        )
+    # Set x-axis ticks to show every 2 years
+    ax_inset.set_xticks(range(YEAR_STT, YEAR_END+1, 2))
+    ax_inset.tick_params(axis='both', labelsize=9)
     
-    # Plot 50km-radius circles around grid nodes
+    # Add background color to distinguish from map
+    ax_inset.set_facecolor('#fafafa')
+
+
+def plot_north_arrow(ax_map):
+    # --- Add North Arrow ---
+    # Position in axes coordinates (0-1)
+    arrow_x, arrow_y = 0.95, 0.95 
+    arrow_length = 0.04
+    
+    # Draw arrow using annotate and 'N' label
+    ax_map.annotate('', xy=(arrow_x, arrow_y), xycoords='axes fraction',
+                    xytext=(arrow_x, arrow_y - arrow_length), textcoords='axes fraction',
+                    arrowprops=dict(facecolor='black', shrink=0.05, width=2, headwidth=8))   
+    ax_map.text(arrow_x, arrow_y + 0.01, 'N', transform=ax_map.transAxes,
+                ha='center', va='bottom', fontsize=12, fontweight='bold')
+
+
+def plot_neighbor_circles(ax_map, grid_nodes):
+    # Plot RADIUS_KM circles around grid nodes
     if grid_nodes is not None and not grid_nodes.empty:
         print(f"Adding {len(grid_nodes)} grid node circles...")
         
         # Create circle patches for each grid node
-        for idx, row in grid_nodes.iterrows():
+        for _, row in grid_nodes.iterrows():
             lon = row['lon']
             lat = row['lat']
             count = row['count']
-            
-            # Create a circle with 50km radius
-            # Convert 50km to degrees (approximate at mid-latitude ~22.5°N)
-            # 1 degree latitude ≈ 111 km
-            # 1 degree longitude ≈ 111 * cos(latitude) km
-            radius_lat = 50.0 / 111.0  # ~0.45 degrees
-            radius_lon = 50.0 / (111.0 * np.cos(np.radians(lat)))  # ~0.49 degrees at 22.5°N
+            radius_lat = row['radius_lat']
+            radius_lon = row['radius_lon']
             
             # Create ellipse to account for projection distortion
             circle = mpatches.Ellipse(
@@ -241,8 +197,8 @@ def plot_stations_map(surf_stations: pd.DataFrame, awst_stations: pd.DataFrame,
                 transform=ccrs.PlateCarree(),
                 facecolor='none',
                 edgecolor='green',
-                linewidth=1,
-                alpha=0.8,
+                linewidth=1.5,
+                alpha=0.9,
                 zorder=7,
             )
             ax_map.add_patch(circle)
@@ -251,15 +207,14 @@ def plot_stations_map(surf_stations: pd.DataFrame, awst_stations: pd.DataFrame,
         circle_legend = mpatches.Patch(
             facecolor='none',
             edgecolor='green',
-            linewidth=0.8,
-            alpha=0.6,
-            label=f'50km Grid Circle ({len(grid_nodes)} nodes)'
+            linewidth=1,
+            alpha=0.9,
         )
         
         # Update legend to include grid circles
         handles, labels = ax_map.get_legend_handles_labels()
         handles.append(circle_legend)
-        labels.append(f'50km Grid Circle ({len(grid_nodes)} nodes)')
+        labels.append(f"{RADIUS_KM}-km-radius Circle")  # ({len(grid_nodes)} nodes)
         
         legend = ax_map.legend(
             handles=handles,
@@ -282,85 +237,104 @@ def plot_stations_map(surf_stations: pd.DataFrame, awst_stations: pd.DataFrame,
         legend.get_frame().set_edgecolor('black')
         legend.get_frame().set_linewidth(1.0)
 
-    # --- Add North Arrow ---
-    # Position in axes coordinates (0-1)
-    arrow_x, arrow_y = 0.95, 0.95 
-    arrow_length = 0.04
-    
-    # Draw arrow using annotate
-    ax_map.annotate('', xy=(arrow_x, arrow_y), xycoords='axes fraction',
-                    xytext=(arrow_x, arrow_y - arrow_length), textcoords='axes fraction',
-                    arrowprops=dict(facecolor='black', shrink=0.05, width=2, headwidth=8))
-    
-    # Add 'N' label
-    ax_map.text(arrow_x, arrow_y + 0.01, 'N', transform=ax_map.transAxes,
-                ha='center', va='bottom', fontsize=12, fontweight='bold')
 
-    # --- Add Station Count Time Series Plot ---
-    print("Calculating yearly station counts...")
-    yearly_counts = calculate_yearly_station_counts(all_stations, 2003, 2025)
+def plot_station_markers(ax_map, stations: pd.DataFrame, scatter_color: str, scatter_size: int, label: str,zorder: int):
     
-    # Create inset axes in lower right corner
-    ax_inset = fig.add_axes([0.53, 0.105, 0.5, 0.3])   
-  
-    # Plot surf-type stations
-    ax_inset.plot(yearly_counts['year'], yearly_counts['surf_count'], 
-                    'b-o', markersize=6, linewidth=1.5, label='National Observatory Station', zorder=2)
-    
-    # Plot awst-type stations
-    ax_inset.plot(yearly_counts['year'], yearly_counts['awst_count'], 
-                    'r-^', markersize=6, linewidth=1.5, label='Automatic Weather Station', zorder=2)
-    
-    # Customize inset plot
-    ax_inset.set_xlabel('Year', fontsize=10) #, fontweight='bold'
-    ax_inset.set_ylabel('Number of Stations', fontsize=10) #, fontweight='bold'
-    # ax_inset.set_title('Station Count Evolution (2003-2025)', 
-    #                     fontsize=11, fontweight='bold', pad=8)
-    ax_inset.grid(True, linestyle='--', alpha=0.5, linewidth=0.8)
-    ax_inset.legend(loc='upper left', fontsize=10, framealpha=0.9, 
-                    frameon=True, edgecolor='black')
-    ax_inset.set_xlim(2002.5, 2025.5)
-    
-    # Set x-axis ticks to show every 2 years
-    ax_inset.set_xticks(range(2003, 2026, 2))
-    ax_inset.tick_params(axis='both', labelsize=9)
-    
-    # Add background color to distinguish from map
-    ax_inset.set_facecolor('#fafafa')
-    
-    print(f"Station counts calculated:")
-    print(f"  2003: {yearly_counts.iloc[0]['total_count']} stations")
-    print(f"  2025: {yearly_counts.iloc[-1]['total_count']} stations")
+    # Plot awst-type stations (red circles)
+    if not stations.empty:
+        ax_map.scatter(
+            stations['lon'],
+            stations['lat'],
+            transform=ccrs.PlateCarree(),
+            c=scatter_color,
+            edgecolor='white',
+            linewidths=0.2,
+            marker='o',
+            s=scatter_size,
+            alpha=0.9,
+            label=label,
+            zorder=zorder,
+        )
 
-    # Save figure
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    plt.savefig(
-        OUTPUT_FILE,
-        dpi=300,
-        bbox_inches='tight',
-        facecolor='white',
+
+def plot_gridlines(ax_map):
+    # Add gridlines
+    gl = ax_map.gridlines(
+        crs=ccrs.PlateCarree(),
+        draw_labels=True,
+        linewidth=0.5,
+        color='gray',
+        alpha=0.7,
+        linestyle='-',
     )
-    print(f"Map saved to: {OUTPUT_FILE}")
+    gl.top_labels = False
+    gl.right_labels = False
+    gl.xlabel_style = {'size': 10, 'rotation': 0}
+    gl.ylabel_style = {'size': 10, 'rotation': 0}
+
+    gl.xlocator = mticker.FixedLocator(np.arange(LON_MIN, LON_MAX + 1, 1))
+    gl.ylocator = mticker.FixedLocator(np.arange(LAT_MIN, LAT_MAX + 1, 1))
+
+
+def plot_geo_feature(ax_map):
+    # Add geographic features    
+    # ax_map.add_feature(LAND, zorder=0)
+    ax_map.add_feature(OCEAN, zorder=0)
+    ax_map.add_feature(COASTLINE, linewidth=0.5, zorder=0)
+
+def plot_provincial_boundaries(ax_map):
+    # load China's provincial boundary including Guangdong from a shapefile
+    chn_boundary = gpd.read_file(SHP_FILE)
+    ax_map.add_geometries(chn_boundary.geometry, crs=ccrs.PlateCarree(),
+                      facecolor='none', edgecolor='black', linewidth=0.5, alpha=1)
+
+def plot_stations_map(surf_stations: pd.DataFrame, awst_stations: pd.DataFrame, 
+                      grid_nodes: pd.DataFrame = None):
+    """
+    Plot station distribution map using cartopy.
+    Optionally adds RADIUS_KM circles around grid nodes.
+    Includes a time series showing station count evolution from YEAR_STT to YEAR_END.
+    """
+    fig = plt.figure(figsize=FIGSIZE, dpi=DPI)
+
+    # Main map axes (takes most of the figure)
+    ax_map = fig.add_axes([0.08, 0.05, 0.95, 0.95], 
+                          projection=ccrs.PlateCarree())
     
-    # Display
-    # plt.show()
+    # Set map extent to Guangdong Province
+    ax_map.set_extent([LON_MIN, LON_MAX, LAT_MIN, LAT_MAX], crs=ccrs.PlateCarree())
+
+    plot_geo_feature(ax_map)
+
+    plot_provincial_boundaries(ax_map)
+
+    plot_station_markers(ax_map, surf_stations, 'blue', 80, 'National Observatory Station',6)
+    plot_station_markers(ax_map, awst_stations, 'red', 40, 'Automatic Weather Station',5)
+    
+    plot_gridlines(ax_map)
+    
+    plot_neighbor_circles(ax_map, grid_nodes)
+
+    plot_north_arrow(ax_map)
+
+    plot_station_timeline(fig, surf_stations, awst_stations)
+
+    print(f"Saving map to: {OUTPUT_FILE}")
+    plt.savefig(OUTPUT_FILE,  bbox_inches='tight',  facecolor='white',  )
 
 
 def main() -> None:
-    surf_stations, awst_stations = load_station_data(STATION_FILE)
+    print(f"Loading station locations from: {STATION_FILE}")
+    surf_stations, awst_stations = load_station_info(STATION_FILE)
     
-    print(f"Surf-type stations: {len(surf_stations)}")
-    print(f"AWST-type stations: {len(awst_stations)}")
+    print(f"Loading grid node locations from: {NEIGHBOR_CIRCLES_FILE}")
+    grid_nodes = load_neighbor_circles(NEIGHBOR_CIRCLES_FILE)
     
-    # Load all stations for time series calculation
-    all_stations = pd.read_csv(STATION_FILE, encoding='utf-8-sig')
-    
-    # Load grid nodes if file exists
-    grid_nodes = None
-    grid_nodes = load_grid_nodes(GRID_NEIGHBORS_FILE)
-    print(f"Grid nodes loaded: {len(grid_nodes)}")
-    
-    plot_stations_map(surf_stations, awst_stations, grid_nodes, all_stations)
+    print("Plotting map...")
+    set_plot_style()
+    plot_stations_map(surf_stations, awst_stations, grid_nodes)
+
+    print(f"Finished: {datetime.now()}")
 
 
 if __name__ == '__main__':

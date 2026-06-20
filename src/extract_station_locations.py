@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Fetch longitude, latitude, and starting date for stations in 广东 that have station type markers A/B.
-Only inland stations matching v_prcode='广东', v02301 like '%A%' or '%B%', and date between 2003-2025 are returned.
+Extract station locations for Guangdong province from database.
+
+This script queries the Oracle database to retrieve longitude, latitude, 
+and starting date for meteorological stations in Guangdong (广东) that have 
+station type markers A/B. 
 """
 
 from __future__ import annotations
@@ -41,7 +44,7 @@ def create_db_engine(db_config: dict[str, str]):
     return create_engine(conn_string, echo=False)
 
 
-def fetch_locations_from_db(engine, table_name: str):
+def fetch_station_locations(engine, table_name: str):
     sql = (
         f"select v01301 stacode, v05001 lat, v06001 lon, to_char(stt_date,'yyyy-mm-dd') date_stt, "
         f"case "
@@ -66,7 +69,7 @@ def main() -> None:
     engine = create_db_engine(db_config)
 
     print(f"Reading station metadata from table: {TABLE_NAME}")
-    locations = fetch_locations_from_db(engine, TABLE_NAME)
+    locations = fetch_station_locations(engine, TABLE_NAME)
 
     # Ensure output directory exists
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)

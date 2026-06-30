@@ -273,6 +273,14 @@ def plot_circles(ax_map, df_validation_circles, flag):
     return dummy_circle
 
 
+def get_qpe_at_location(qpe_data: np.ndarray, x_coords: np.ndarray, y_coords: np.ndarray,
+                        target_lon: float, target_lat: float) -> float:
+    """Return the QPE value at the nearest grid point to (target_lon, target_lat)."""
+    lon_idx = int(np.argmin(np.abs(x_coords - target_lon)))
+    lat_idx = int(np.argmin(np.abs(y_coords - target_lat)))
+    return float(qpe_data[lat_idx, lon_idx])
+
+
 def plot_geo_feature(ax_map):
     # Add geographic features    
     ax_map.add_feature(LAND, zorder=0)
@@ -504,19 +512,34 @@ def subplot_qpe_map(fig, gs, target_stacode: str, ddatetime_utc: pd.Timestamp, t
 
     # === Add Gridlines ===
     plot_gridlines(ax_map)
-    
-    # # === Plot Target Station as Red Dot ===
-    # ax_map.scatter(target_lon, target_lat,
-    #                s=30, c='red', marker='o', edgecolors='darkred', linewidths=1.5,
-    #                transform=ccrs.PlateCarree(),
-    #                zorder=4)
+
+    # === Target station marker + QPE label to the north ===
+    ax_map.scatter(target_lon, target_lat,
+                   s=20, c='white', marker='o', edgecolors='black', linewidths=0.8, alpha=0.4,
+                   transform=ccrs.PlateCarree(), zorder=5)
+
+    qpe_at_target = get_qpe_at_location(qpe_data, x_coords, y_coords, target_lon, target_lat)
+    label_offset = (map_extent[3] - map_extent[2]) * 0.10  # 10% of map height north
+
+    geo_transform = ccrs.PlateCarree()._as_mpl_transform(ax_map)
+    ax_map.annotate(
+        f"QPE: {qpe_at_target:.1f} mm",
+        xy=(target_lon, target_lat),
+        xytext=(target_lon, target_lat + label_offset),
+        xycoords=geo_transform,
+        textcoords=geo_transform,
+        fontsize=6, fontweight='bold', color='black', ha='center', va='bottom',
+        bbox=dict(facecolor='white', alpha=0.85, edgecolor='gray', linewidth=0.5, pad=2),
+        arrowprops=dict(arrowstyle='-', color='black', linewidth=0.7),
+        zorder=6,
+    )
     
 
 def plot_qpe(target_stacode: str, ddatetime_utc: pd.Timestamp, target_precip: float,
              qpe_data: np.ndarray, x_coords: np.ndarray, y_coords: np.ndarray,
              df_circles: pd.DataFrame, target_lon: float, target_lat: float,
              map_extent, df_extreme_circles: pd.DataFrame, output_file: Path,
-             dem_data=None):
+             dem_data=None, confusion_type: str = ''):
     set_plot_style()
     
     # Create figure with 2x1 layout (map + histogram)
@@ -537,7 +560,9 @@ def plot_qpe(target_stacode: str, ddatetime_utc: pd.Timestamp, target_precip: fl
  
     # Set title
     datetime_str = (ddatetime_utc + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')
-    fig.suptitle(f"Quantitative Precipitation Estimation at {datetime_str}\nTarget Precipitation: {target_precip:.1f} mm",
+    qpe_at_target = get_qpe_at_location(qpe_data, x_coords, y_coords, target_lon, target_lat)
+    fig.suptitle(f"{confusion_type}: Station {target_stacode} at {datetime_str}\n"
+                 f"Target QPE: {qpe_at_target:.1f} mm",
                  fontsize=9)
     
     plt.subplots_adjust(left=0.1, right=0.98, top=0.92, bottom=0.06)

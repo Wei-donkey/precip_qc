@@ -13,7 +13,7 @@ import pandas as pd
 
 # Constants used in the evaluation logic
 CLIMATE_LIMIT = 184.4
-QC_THRESHOLD = 10
+QC_THRESHOLD = 5  # Automatically label low precipitation as NORMAL during outlier detection process
 EXTREME_ITERATION_LIMIT = 5  # Number of iterative extreme inspection to evaluate for each outlier
 EXTREME_QC_LABELS = ['EXTREME_TYPE1', 'EXTREME_TYPE2', 'EXTREME_TYPE3', 'EXTREME_TYPE4', 'EXTREME_TYPE5'] # extreme type corresponding to confidence score , 'EXTREME_TYPE5'
 EXTREME_QC_LABELS = EXTREME_QC_LABELS[:EXTREME_ITERATION_LIMIT]

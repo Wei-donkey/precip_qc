@@ -59,8 +59,8 @@ def plot_qpe_event(df_event: pd.DataFrame, df_extreme_circles: pd.DataFrame,
     ddatetime_beijing = pd.to_datetime(df_event.iloc[0]['ddatetime'])
     target_precip = float(df_event.iloc[0]['r'])
 
-    qc_type = df_event.iloc[0]['qc_type']
-    output_dir = SRC_DIR.parent / 'figures' / f"qc_{qc_type}@{MODE}_circle_{DATASET}"
+    confusion_type = df_event.iloc[0]['qc_type']
+    output_dir = SRC_DIR.parent / 'figures' / f"qc_{confusion_type}@{MODE}_circle_{DATASET}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\nProcessing event: Station {target_stacode} at {ddatetime_beijing}")
@@ -93,7 +93,7 @@ def plot_qpe_event(df_event: pd.DataFrame, df_extreme_circles: pd.DataFrame,
         ddatetime_beijing_step = ddatetime_beijing + timedelta(hours=offset)
 
         datetime_str = ddatetime_beijing_step.strftime('%Y%m%d%H')
-        output_file = output_dir / f"qc_{qc_type}_{target_stacode}_{datetime_str}_qpe.png"
+        output_file = output_dir / f"qc_{confusion_type}_{target_stacode}_{datetime_str}_qpe.png"
 
         # Convert to UTC (Beijing is UTC+8)
         ddatetime_utc = ddatetime_beijing_step - timedelta(hours=8)
@@ -117,7 +117,8 @@ def plot_qpe_event(df_event: pd.DataFrame, df_extreme_circles: pd.DataFrame,
             map_extent=map_extent,
             df_extreme_circles=df_circles,
             output_file=output_file,
-            dem_data=dem_data
+            dem_data=dem_data,
+            confusion_type=confusion_type,
         )
 
 

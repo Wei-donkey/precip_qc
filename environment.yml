@@ -1,0 +1,14 @@
+name: paper_precip_qc
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.9
+  - numpy
+  - pandas
+  - xarray
+  - matplotlib
+  - cartopy
+  - geopandas
+  - sqlalchemy
+  - oracledb

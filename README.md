@@ -114,14 +114,6 @@ cell directly over the target station.*
 *Fig. 8 — A true-positive (TYPE2) extreme validated by radar QPE
 (2021-04-19 14:00–18:00).*
 
-## Historical QC application (2003–2025)
-
-![Monthly QC statistics](manuscript_figures/fig09_monthly_qc_statistics.png)
-*Fig. 9 — Monthly statistics of the historical QC result across the AWS network.*
-
-![Seasonal false pattern](manuscript_figures/fig10_seasonal_false_pattern.png)
-*Fig. 10 — Seasonal pattern of false records identified during 2003–2025.*
-
 ## Project Structure
 `__init__.py`: adding an empty `__init__.py` file gives flexibility.
 `src/`: Contains Python processing scripts.

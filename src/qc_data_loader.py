@@ -102,6 +102,76 @@ def fetch_all_station_precip(conn, time_stt: datetime, time_end: datetime, all_s
     return df_all
 
 
+def merge_time_windows(timestamps, hour_offset: int) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Merge ±hour_offset windows around each timestamp into non-overlapping (start, end) ranges."""
+    times = pd.DatetimeIndex(pd.to_datetime(timestamps)).unique().sort_values()
+    offset = pd.Timedelta(hours=hour_offset)
+
+    windows = []
+    for t in times:
+        time_stt, time_end = t - offset, t + offset
+        # Merge with previous window if overlapping or directly adjacent
+        if windows and time_stt <= windows[-1][1] + pd.Timedelta(hours=1):
+            windows[-1] = (windows[-1][0], max(windows[-1][1], time_end))
+        else:
+            windows.append((time_stt, time_end))
+    return windows
+
+
+def load_precip_cache(file_path: Path) -> pd.DataFrame:
+    """Load cached hourly precipitation (parquet) indexed and sorted by ddatetime for fast slicing.
+
+    Station codes and types stay categorical to keep large caches compact in memory;
+    slice_precip_cache() converts each slice back to plain strings.
+    """
+    df = pd.read_parquet(file_path)
+    df['stacode'] = df['stacode'].astype(str).astype('category') if df['stacode'].dtype != 'category' else df['stacode']
+    df['statype'] = df['statype'].astype(str).astype('category') if df['statype'].dtype != 'category' else df['statype']
+    df['ddatetime'] = pd.to_datetime(df['ddatetime'])
+    return df.set_index('ddatetime').sort_index()
+
+
+def slice_precip_cache(df_cache: pd.DataFrame, time_stt: datetime, time_end: datetime) -> pd.DataFrame:
+    """Return cached records between time_stt and time_end (inclusive), in the same layout as fetch_all_station_precip()."""
+    df = df_cache.loc[time_stt:time_end].reset_index()
+    df['stacode'] = df['stacode'].astype(str)
+    df['statype'] = df['statype'].astype(str)
+    return df
+
+
+class AdjacentPrecipSource:
+    """
+    Adjacent-hour precipitation of all stations, read from the first existing cache file
+    (data/cache/); falls back to the database when no cache exists.
+    Use as a context manager so a database connection, if opened, is closed afterwards.
+    """
+
+    def __init__(self, cache_files: list[Path], config_file: Path, db_section: str, all_stations: pd.Series):
+        self.cache_file = next((f for f in cache_files if Path(f).exists()), None)
+        self.config_file, self.db_section, self.all_stations = config_file, db_section, all_stations
+        self.df_cache, self.engine, self.conn = None, None, None
+
+    def __enter__(self):
+        if self.cache_file is not None:
+            print(f"Loading cached adjacent precipitation from {self.cache_file}...")
+            self.df_cache = load_precip_cache(self.cache_file)
+        else:
+            print("No cache found, connecting to database...")
+            self.engine = create_db_engine(load_db_config(self.config_file, self.db_section))
+            self.conn = self.engine.connect()
+        return self
+
+    def get(self, time_stt: datetime, time_end: datetime) -> pd.DataFrame:
+        if self.df_cache is not None:
+            return slice_precip_cache(self.df_cache, time_stt, time_end)
+        return fetch_all_station_precip(self.conn, time_stt, time_end, self.all_stations)
+
+    def __exit__(self, *exc):
+        if self.conn is not None:
+            self.conn.close()
+            self.engine.dispose()
+
+
 def load_qc_result(input_file: Path, qc_type: str = 'false') -> pd.DataFrame:
     """ Filter records based on QC type. """
     df = pd.read_csv(input_file, encoding='utf-8-sig')

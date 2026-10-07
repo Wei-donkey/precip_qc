@@ -1,8 +1,50 @@
-# Ignore data, figure, and test folders
-data/
-figures/
+# Ignore test and docs folders
 test/
 docs/
+
+# Data: ignored except the demonstration data needed to run training, evaluation and plotting offline
+data/*
+data/_superseded/
+!data/gd_stations_locations.csv
+!data/gd_validation_data_train.csv
+!data/gd_validation_data_test.csv
+!data/gd_malfunction_periods.csv
+!data/gd_validation_false_pool.csv
+!data/gd_extreme_data.csv
+!data/qc_result_test_qpe_plotting.csv
+!data/neighbor_circles_outlier/
+!data/neighbor_circles_extreme/
+!data/cache/
+data/cache/*
+!data/cache/gd_validation_data_train_adjacent2h.parquet
+!data/cache/gd_validation_data_test_adjacent2h.parquet
+!data/cache/gd_validation_false_pool_adjacent2h.parquet
+!data/cache/gd_extreme_data_adjacent2h.parquet
+!data/external/
+data/external/*
+!data/external/basemap/
+!data/external/qpe_cases/
+
+# Outputs: ignored except the result tables read by later scripts, so that every script also runs on its own
+outputs/*
+!outputs/tables/
+outputs/tables/*
+!outputs/tables/tuning/
+outputs/tables/tuning/*
+!outputs/tables/tuning/qc_result_train_outlier60km_extreme80km_single.csv
+!outputs/tables/tuning/qc_result_train_outlier60km_extreme80km_few.csv
+!outputs/tables/tuning/qc_result_train_outlier60km_extreme80km_many.csv
+!outputs/tables/tuning/qc_critical_multiplier_by_radius_train.csv
+!outputs/tables/tuning/stage2/
+outputs/tables/tuning/stage2/*.log
+!outputs/tables/application/
+outputs/tables/application/*
+!outputs/tables/application/qc_monthly_statistics_2003-2025_5mm.csv
+!outputs/tables/validation/
+outputs/tables/validation/*
+!outputs/tables/validation/qc_false_label_nmo_support.csv
+!outputs/tables/validation/qc_result_test_outlier60km_extreme80km.csv
+!outputs/tables/climate_limit/
 
 # Ignore Python specific files
 __pycache__/
@@ -18,7 +60,17 @@ Thumbs.db
 .idea/
 
 # Ignore database config with passwords
-src/config_db.ini
+scripts/config_db.ini
+
+# Local data-preparation scripts (9xx): they need the Oracle database or data that cannot be published
+# (the full labeled pool, the monthly radar QPE files). Kept locally, not published; their outputs needed
+# by the published scripts (01-19) are included under data/ and outputs/.
+scripts/9*.py
 
 # Workspace-specific agent customizations
 .agent.md
+
+# Claude Code memory and settings (not part of the project)
+memory/
+.claude/
+CLAUDE.md

@@ -12,8 +12,10 @@ import numpy as np
 import pandas as pd
 
 # Constants used in the evaluation logic
-CLIMATE_LIMIT = 184.4
-QC_THRESHOLD = 5  # Automatically label low precipitation as NORMAL during outlier detection process
+# Default thresholds, overridable via function arguments
+DEFAULT_CLIMATE_LIMIT = 184.4  # neighbors above this value are excluded from extreme inspection
+DEFAULT_QC_THRESHOLD = 1  # Automatically label precipitation below this value as NORMAL during outlier detection process
+DEFAULT_IQR_MULTIPLIER = 3  # k of the one-sided outlier fence P_max = Q3 + k * IQR (largest k with the fewest stage-1 false acceptances)
 EXTREME_ITERATION_LIMIT = 5  # Number of iterative extreme inspection to evaluate for each outlier
 EXTREME_QC_LABELS = ['EXTREME_TYPE1', 'EXTREME_TYPE2', 'EXTREME_TYPE3', 'EXTREME_TYPE4', 'EXTREME_TYPE5'] # extreme type corresponding to confidence score , 'EXTREME_TYPE5'
 EXTREME_QC_LABELS = EXTREME_QC_LABELS[:EXTREME_ITERATION_LIMIT]
@@ -21,9 +23,16 @@ EXTREME_QC_LABELS = EXTREME_QC_LABELS[:EXTREME_ITERATION_LIMIT]
 EXTREME_TCS_THRESHOLD = [2, 3, 4, 5, 6]  # confidence score threshold denoting number of neighbors to validate outliers , 6
 EXTREME_CONFIDENCE_COEFF = [0.5, 0.4, 0.3, 0.2, 0.1]  # confidence coefficients for establishing thresholds (coef*outlier) for extreme check , 0.1
 
+# Two-segment stage 2: outliers below LOW_INTENSITY_THRESHOLD get a single check, i.e. only the
+# first-round criteria (later relaxed rounds disabled), same-hour neighbors, and small extreme circles
+LOW_INTENSITY_THRESHOLD = 20  # mm, tuned jointly with LOW_INTENSITY_EXTREME_RADIUS on the training sets
+LOW_INTENSITY_EXTREME_RADIUS = 20  # km
+LOW_INTENSITY_NEIGHBOR_HOR = 0  # same hour only
+LOW_INTENSITY_TCS_THRESHOLD = [EXTREME_TCS_THRESHOLD[0]] + [np.inf] * (EXTREME_ITERATION_LIMIT - 1)
 
-def calculate_p_max(precip_values: pd.Series) -> float:
-    """ Calculate P_max threshold using IQR method. """
+
+def calculate_p_max(precip_values: pd.Series, iqr_multiplier: float = DEFAULT_IQR_MULTIPLIER) -> float:
+    """ Calculate P_max threshold using IQR method: P_max = Q3 + iqr_multiplier * IQR. """
     if len(precip_values) == 0:
         return np.inf
         
@@ -35,11 +44,13 @@ def calculate_p_max(precip_values: pd.Series) -> float:
     if iqr == 0:
         iqr = 0.1
         
-    p_max = q3 + 3 * iqr
+    p_max = q3 + iqr_multiplier * iqr
     return p_max
 
 
-def perform_outlier_detection(df_all: pd.DataFrame, df_outlier_circles: pd.DataFrame) -> pd.DataFrame:
+def perform_outlier_detection(df_all: pd.DataFrame, df_outlier_circles: pd.DataFrame,
+                              qc_threshold: float = DEFAULT_QC_THRESHOLD,
+                              iqr_multiplier: float = DEFAULT_IQR_MULTIPLIER) -> None:
     """
     Perform outlier circle spatial consistency check and label records as NORMAL or OUTLIER.
     
@@ -49,7 +60,7 @@ def perform_outlier_detection(df_all: pd.DataFrame, df_outlier_circles: pd.DataF
     """
     
     # Automatically label low precipitation as NORMAL
-    df_all.loc[df_all['r'] < QC_THRESHOLD, 'qc_label'] = 'NORMAL'
+    df_all.loc[df_all['r'] < qc_threshold, 'qc_label'] = 'NORMAL'
 
     for _, single_circle in df_outlier_circles.iterrows():
         neighbor_stations = single_circle['neighbors']
@@ -61,12 +72,12 @@ def perform_outlier_detection(df_all: pd.DataFrame, df_outlier_circles: pd.DataF
         if len(df_neighbors) == 0:
             continue
 
-        # Skip if all neighbor stations have precipitation < QC_THRESHOLD
+        # Skip if all neighbor stations have precipitation < qc_threshold
         # The column "validation_sample_size" of these skipped stations will remain None
-        if df_neighbors['r'].max() < QC_THRESHOLD:
+        if df_neighbors['r'].max() < qc_threshold:
             continue
         
-        p_max = calculate_p_max(df_neighbors['r'])
+        p_max = calculate_p_max(df_neighbors['r'], iqr_multiplier)
         
         df_all.loc[(neighbor_mask) & (df_all['r'] <= p_max), 'qc_label'] = 'NORMAL'
         df_all.loc[(neighbor_mask) & (df_all['r'] <= p_max), 'validation_sample_size'] = df_neighbors.shape[0]
@@ -94,27 +105,34 @@ def compute_total_confidence_score(df_neighbors, r_threshold):
 
 
 def perform_extreme_inspection(target_stacode: str, target_statype:str, target_precip: float, 
-                               filtered_extreme_circles: pd.DataFrame, df_all_adjacent: pd.DataFrame, loop_all_circle: bool=False) -> None:
+                               filtered_extreme_circles: pd.DataFrame, df_all_adjacent: pd.DataFrame, 
+                               loop_all_circle: bool=False, climate_limit: float = DEFAULT_CLIMATE_LIMIT,
+                               tcs_thresholds: list[float] | None = None,
+                               confidence_coeffs: list[float] | None = None) -> tuple:
     """
     Perform extreme circle evaluation for OUTLIER records in-place.
-    
-    For each outlier, checks if certain amount of neighboring stations within extreme circles 
+
+    For each outlier, checks if certain amount of neighboring stations within extreme circles
     have precipitation values that satisfy specific thresholds based on the OUTLIER record.
     Labels as EXTREME_TYPE1-5 if conditions are met, otherwise FALSE.
     If loop_all_circle is True, the extreme_inspection() will loop all extreme circles containing the outlier station;
     If loop_all_circle is False, the extreme_inspection() will break once an extreme circle validates the outlier station as extreme.
+    tcs_thresholds and confidence_coeffs override EXTREME_TCS_THRESHOLD and EXTREME_CONFIDENCE_COEFF
+    (one value per iteration), e.g. for sensitivity tests.
     """
+    tcs_thresholds = EXTREME_TCS_THRESHOLD if tcs_thresholds is None else tcs_thresholds
+    confidence_coeffs = EXTREME_CONFIDENCE_COEFF if confidence_coeffs is None else confidence_coeffs
 
     is_extreme, qc_label, validation_sample_size = False, None, None
 
     for extreme_type in EXTREME_QC_LABELS:
         extreme_type_idx = EXTREME_QC_LABELS.index(extreme_type)
-        extreme_tcs_threshold = EXTREME_TCS_THRESHOLD[extreme_type_idx]
-        
+        extreme_tcs_threshold = tcs_thresholds[extreme_type_idx]
+
         # If the target station is SURF, we give it extra confidence and reduce the threshold by 1
         if target_statype == 'SURF':
             extreme_tcs_threshold -= 1
-        confidence_coeff = EXTREME_CONFIDENCE_COEFF[extreme_type_idx]
+        confidence_coeff = confidence_coeffs[extreme_type_idx]
         r_threshold = confidence_coeff * target_precip
 
         # initialize counts and locations for extreme circles which validate the outlier station as extreme
@@ -135,7 +153,7 @@ def perform_extreme_inspection(target_stacode: str, target_statype:str, target_p
             # Filter adjacent data for these neighbors
             df_neighbors = df_all_adjacent[df_all_adjacent['stacode'].isin(neighbors)]
             # Exclude neighbors outside of climate limit
-            df_neighbors = df_neighbors[df_neighbors['r']<=CLIMATE_LIMIT]           
+            df_neighbors = df_neighbors[df_neighbors['r']<=climate_limit]           
             
             if df_neighbors.empty:
                 continue

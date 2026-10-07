@@ -3,12 +3,18 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python>=3.9
+  - python>=3.10
   - numpy
   - pandas
+  - pyarrow        # parquet cache of the neighbor rainfall
   - xarray
+  - netcdf4        # radar QPE snippets
+  - rioxarray      # DEM of the maps
+  - rasterio
   - matplotlib
+  - pillow         # assembling the multi-panel figures
   - cartopy
   - geopandas
-  - sqlalchemy
-  - oracledb
+  - scikit-learn   # neighborhood circles (BallTree)
+  - sqlalchemy     # database fallback only
+  - oracledb       # database fallback only

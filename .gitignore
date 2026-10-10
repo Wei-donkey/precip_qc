@@ -75,12 +75,12 @@ scripts/21_plot_stage2_demo.py
 # versions (changed-region frames, for browsers), the others are the full-frame versions for PowerPoint
 demo_figures/*
 !demo_figures/stage1_outlier_identification_20250924_1200_web.gif
-!demo_figures/stage2_extreme_inspection_2x3_web.gif
+!demo_figures/stage2_extreme_inspection_web.gif
 !demo_figures/stage1_outlier_identification_20170507_0600.gif
 !demo_figures/stage1_outlier_identification_20200510_1500.gif
 !demo_figures/stage1_outlier_identification_20240519_1100.gif
 !demo_figures/stage1_outlier_identification_20250924_1200.gif
-!demo_figures/stage2_extreme_inspection_2x3.gif
+!demo_figures/stage2_extreme_inspection.gif
 
 # Workspace-specific agent customizations
 .agent.md

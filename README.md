@@ -5,7 +5,7 @@
 in each, values up to the fence R<sub>out</sub> = Q<sub>3</sub> + 3·IQR are accepted as NORMAL, and the values no
 circle accepts are labeled OUTLIER.*
 
-![Stage 2: extreme inspection](demo_figures/stage2_extreme_inspection_2x3_web.gif)
+![Stage 2: extreme inspection](demo_figures/stage2_extreme_inspection_web.gif)
 *Stage 2, extreme inspection (schematic): the 80-km extreme circles containing an outlier are checked round by round;
 a circle is effective when enough neighbors reach R<sub>n</sub> = CC<sub>n</sub> × r<sub>target</sub>, and the
 round of the first effective circle gives the label EXTREME_TYPE1–5.*

@@ -67,6 +67,18 @@ scripts/config_db.ini
 # by the published scripts (01-19) are included under data/ and outputs/.
 scripts/9*.py
 
+# Local scripts of the presentation animations (kept locally, not published)
+scripts/20_plot_animation_stage1.py
+scripts/21_plot_stage2_demo.py
+
+# Presentation animations: only those shown in this README are published
+demo_figures/*
+!demo_figures/stage1_outlier_identification_20170507_0600.gif
+!demo_figures/stage1_outlier_identification_20200510_1500.gif
+!demo_figures/stage1_outlier_identification_20240519_1100.gif
+!demo_figures/stage1_outlier_identification_20250924_1200.gif
+!demo_figures/stage2_extreme_inspection_2x3.gif
+
 # Workspace-specific agent customizations
 .agent.md
 

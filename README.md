@@ -1,5 +1,15 @@
 # Scripts for hourly rainfall quality control
 
+![Stage 1: outlier identification](demo_figures/stage1_outlier_identification_20250924_1200.gif)
+*Stage 1, outlier identification (Guangdong, 2025-09-24 12:00 BJT): the 60-km outlier circles slide over the province;
+in each, values up to the fence R<sub>out</sub> = Q<sub>3</sub> + 3·IQR are accepted as NORMAL, and the values no
+circle accepts are labeled OUTLIER.*
+
+![Stage 2: extreme inspection](demo_figures/stage2_extreme_inspection_2x3.gif)
+*Stage 2, extreme inspection (schematic): the 80-km extreme circles containing an outlier are checked round by round;
+a circle is effective when enough neighbors reach R<sub>n</sub> = CC<sub>n</sub> × r<sub>target</sub>, and the
+round of the first effective circle gives the label EXTREME_TYPE1–5.*
+
 ## Description
 This repository implements the iterative spatial consistency quality control (QC) method for hourly
 rainfall proposed in the manuscript below, and reproduces its parameter tuning, validation, benchmark
@@ -355,6 +365,7 @@ k = 4 (Jiang et al. 2015) and k = 80 (tuned on the training set), and by the pro
 | `outputs/tables/` | Result tables: `tuning/` (training set; `tuning/stage2/` holds the stage-2 labels of every setting), `validation/` (test set), `application/` (full archive), `climate_limit/`. Only the tables that figures need but only the database can produce are included. |
 | `outputs/figures/` | Figures written by the scripts (not included; the scripts recreate them). |
 | `manuscript_figures/` | Figures of the submitted manuscript, shown in this README. |
+| `demo_figures/` | Animations of the two QC stages, shown at the top of this README (stage 1 for four observed hours, stage 2 with synthetic data). |
 | `docs/` | Manuscript and notes. Ignored by Git. |
 
 ### Core modules (`src/`)

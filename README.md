@@ -89,16 +89,7 @@ were dry. True records below 50 mm are downsampled to 600 per bin; the 5,007 sam
 | All | 14 | 26 | 1,780 | 182 | 0.986 | 0.929 |
 
 The Madsen–Allerup check with a tuned threshold (k = 80) rejected 90 genuine test records and
-accepted 7 false ones. The method was applied to ~425 million AWS hourly records (2003–2025); values below 5 mm were
-accepted without inspection and 4.47 million records of 5 mm or more were inspected. Of the 612,766
-records of 20 mm or more, 2,146 were labeled false; their share fell from 2.5% in 2003–2008 to 0.14% in
-2016–2025. Outliers below 20 mm rejected by the strict single check (231,263 records of 5–20 mm) are
-labeled **suspect** rather than false and kept in the data, because the single check also rejects part
-of the genuine moderate rainfall (5.6% of the genuine training records of 1–20 mm).
-
-![Historical QC](manuscript_figures/fig09_monthly_qc_statistics.png)
-*Monthly records of the AWS archive, false records of 20 mm or more, and their share of the records of
-20 mm or more over the preceding 12 months.*
+accepted 7 false ones.
 
 ## Study area and data
 
@@ -144,6 +135,19 @@ convective cell directly over the target station.*
 
 ![QPE true positive case](manuscript_figures/fig08_qpe_true_positive_case.png)
 *A true-positive (TYPE2) extreme validated by radar QPE (2021-04-19 14:00–18:00).*
+
+## Application to the AWS archive (2003–2025)
+
+The method was applied to ~425 million AWS hourly records (2003–2025); values below 5 mm were
+accepted without inspection and 4.47 million records of 5 mm or more were inspected. Of the 612,766
+records of 20 mm or more, 2,146 were labeled false; their share fell from 2.5% in 2003–2008 to 0.14% in
+2016–2025. Outliers below 20 mm rejected by the strict single check (231,263 records of 5–20 mm) are
+labeled **suspect** rather than false and kept in the data, because the single check also rejects part
+of the genuine moderate rainfall (5.6% of the genuine training records of 1–20 mm).
+
+![Historical QC](manuscript_figures/fig09_monthly_qc_statistics.png)
+*Monthly records of the AWS archive, false records of 20 mm or more, and their share of the records of
+20 mm or more over the preceding 12 months.*
 
 ## Manuscript tables
 
